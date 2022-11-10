@@ -3,8 +3,6 @@ CREATE TABLE github_events (
   delivery UUID PRIMARY KEY,
   organization VARCHAR,
   repository VARCHAR,
-  received_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ,
+  receipt TIMESTAMPTZ,
   payload JSONB NOT NULL
 );
