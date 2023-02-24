@@ -41,7 +41,7 @@ resource "aws_db_parameter_group" "rds" {
 resource "aws_db_instance" "rds" {
   identifier             = "rds-tf-aws-gh-observability"
   instance_class         = "db.t3.micro"
-  allocated_storage      = 5
+  allocated_storage      = 100
   engine                 = "postgres"
   engine_version         = "13.7"
 
