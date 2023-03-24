@@ -8,6 +8,8 @@ Currently, the GitHub App - https://github.com/apps/pl-strflt-tf-aws-gh-observab
 - [ipfs](http://github.com/ipfs)
 - [libp2p](http://github.com/libp2p)
 
-To start collecting events from other orgs, the list in https://github.com/pl-strflt/tf-aws-gh-observer/blob/main/main.tf#L48 has to be updated and the changes have to be applied.
+To start collecting events from other orgs
+1. create a PR that adds the org to the list in https://github.com/pl-strflt/tf-aws-gh-observer/blob/main/main.tf#L48
+1. install https://github.com/apps/pl-strflt-tf-aws-gh-observability for all the repositories in the org
 
 Currently, we only collect GitHub Actions related events but there's nothing blocking us from expanding to other types of events.
