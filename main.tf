@@ -45,7 +45,7 @@ variable "github_app_webhook_secret" {}
 variable "organization_allow_list" {
   description = "List of org names allowed to use the github app"
   type        = list(string)
-  default     = ["pl-strflt", "testground", "ipfs", "libp2p"]
+  default     = ["filecoin-shipyard", "ipfs", "ipfs-examples", "ipfs-shipyard", "ipld", "ipni", "libp2p", "multiformats", "pl-strflt", "plprobelab", "testground"]
 }
 
 variable "log_type" {
