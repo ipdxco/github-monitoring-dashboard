@@ -40,6 +40,6 @@ Currently, our focus is on collecting GitHub Actions-related events. However, ou
 
 ## Visualizing Your Data
 
-For a high-level view of your GitHub Actions, consult our Grafana dashboard. The configuration for the dashboard is stored in the [JSON configuration file](GitHub Actions-1685974370939.json). The image below provides a glimpse into the kind of insights available with our setup.
+For a high-level view of your GitHub Actions, consult our Grafana dashboard. The configuration for the dashboard is stored in the [JSON configuration file](GitHub%20Actions-1685974370939.json). The image below provides a glimpse into the kind of insights available with our setup.
 
 ![protocollabs grafana net_d_a11c5e9e-b6f0-44b4-9b54-10f4207d110e_github-actions_orgId=1 (8)](https://github.com/pl-strflt/tf-aws-gh-observer/assets/6688074/bd59095d-3887-4545-8f5f-9a943c2aa51c)
