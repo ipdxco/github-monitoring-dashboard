@@ -3,7 +3,7 @@
 ![observability-banner](https://github.com/pl-strflt/tf-aws-gh-observer/assets/6688074/77b35ed7-63dd-49a5-b549-51b46f1d3a6b)
 
   
-# tf-aws-gh-observer: Holistic Monitoring for GitHub Actions
+# Holistic Monitoring for GitHub Actions
 
 A comprehensive solution for monitoring GitHub Actions that bridges data collection through AWS infrastructure with intuitive data presentation using Grafana.
   
