@@ -1,0 +1,4420 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_IPDX_RDS",
+      "label": "IPDX RDS",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "postgres",
+      "pluginName": "PostgreSQL"
+    }
+  ],
+  "__elements": {},
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0-cloud.3.b04cc88b"
+    },
+    {
+      "type": "datasource",
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "target": {
+          "limit": 100,
+          "matchAny": false,
+          "tags": [],
+          "type": "dashboard"
+        },
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "${DS_IPDX_RDS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 14,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "updated_at"
+          }
+        ]
+      },
+      "pluginVersion": "10.0.0-cloud.3.b04cc88b",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "${DS_IPDX_RDS}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH v1 AS (\n  SELECT\n    repository,\n    payload -> 'workflow_run' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_run' ->> 'html_url' AS url,\n    (payload -> 'workflow_run' ->> 'updated_at')::timestamp AS updated_at,\n    (payload -> 'workflow_run' ->> 'run_started_at')::timestamp AS started_at,\n    payload -> 'workflow_run' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_run' ->> 'run_attempt' AS attempt\n  FROM github_events\n  WHERE\n    event = 'workflow_run' AND\n    organization = '$org' AND\n    repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_run' ->> 'head_branch' ~ '$branch'\n), v2 AS (\n  SELECT * \n  FROM v1 \n  UNION ALL\n  SELECT \n    repository,\n    name,\n    'requested' AS action,\n    url,\n    started_at AS updated_at,\n    started_at,\n    '' AS conclusion,\n    attempt\n  FROM v1\n  WHERE\n    action = 'completed' AND\n    attempt <> '1'\n), v3 AS (\n  SELECT *,\n    CASE WHEN action = 'requested' THEN NOW() ELSE updated_at END AS completed_at,\n    CASE WHEN action = 'requested' THEN 1 ELSE 0 END AS is_requested,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'skipped' THEN 1 ELSE 0 END AS is_skipped,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v2\n), v4 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$repo], 1) = 1 THEN name ELSE repository END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS duration,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_requested) OVER (ORDER BY updated_at) AS requested,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_skipped) OVER (ORDER BY updated_at) AS skipped,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled\n  FROM v3\n)\nSELECT\n  repository,\n  name,\n  action,\n  url,\n  conclusion,\n  attempt,\n  updated_at,\n  id,\n  duration,\n  time_bucket,\n  -- is_requested,\n  is_success,\n  -- is_failure,\n  -- is_skipped,\n  -- is_cancelled,\n  requested,\n  success,\n  failure,\n  skipped,\n  cancelled\nFROM v4\nORDER BY updated_at\n",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Workflow Events",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "attempt": true,
+              "cancelled": true,
+              "conclusion": true,
+              "duration": true,
+              "failure": true,
+              "id": true,
+              "is_success": true,
+              "requested": true,
+              "skipped": true,
+              "success": true,
+              "time_bucket": true,
+              "updated_at": false
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "${DS_IPDX_RDS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "started_at"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 219
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "completed_at"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 183
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "created_at"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 206
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "updated_at"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 195
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 192
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 648
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 31,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.0.0-cloud.3.b04cc88b",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "${DS_IPDX_RDS}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH v1 AS (\n  SELECT\n    repository,\n    payload -> 'workflow_job' ->> 'workflow_name' AS workflow_name,\n    payload -> 'workflow_job' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_job' ->> 'html_url' AS url,\n    (payload -> 'workflow_job' ->> 'created_at')::timestamp AS _created_at,\n    (payload -> 'workflow_job' ->> 'started_at')::timestamp AS _started_at,\n    (payload -> 'workflow_job' ->> 'completed_at')::timestamp AS _completed_at,\n    payload -> 'workflow_job' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_job' ->> 'runner_name' AS runner\n  FROM github_events\n  WHERE\n    event = 'workflow_job' AND\n    organization = '$org' AND\n    repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_job' ->> 'head_branch' ~ '$branch' AND\n    payload -> 'workflow_job' ->> 'labels' ~ '$labels'\n), v2 AS (\n  SELECT *,\n    COALESCE(_completed_at, NOW()) AS completed_at,\n    COALESCE(_started_at, NOW()) AS started_at,\n    COALESCE(_created_at, NOW()) AS created_at,\n    COALESCE(_completed_at, _started_at, _created_at) AS updated_at,\n    CASE WHEN action = 'queued' THEN 1 ELSE 0 END AS is_queued,\n    CASE WHEN action = 'in_progress' THEN 1 ELSE 0 END AS is_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner <> '' THEN 1 ELSE 0 END AS is_cancelled_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner = '' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v1\n), v3 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$repo], 1) = 1 THEN workflow_name || ' / ' || name ELSE repository END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS execution,\n    EXTRACT(EPOCH FROM completed_at - created_at) / 60.0 AS duration,\n    EXTRACT(EPOCH FROM started_at - created_at) / 60.0 AS wait,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_queued) OVER (ORDER BY updated_at) AS queued,\n    SUM(is_in_progress) OVER (ORDER BY updated_at) AS in_progress,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled,\n    SUM(is_cancelled_in_progress) OVER (ORDER BY updated_at) AS cancelled_in_progress\n  FROM v2\n)\nSELECT\n  repository,\n  workflow_name,\n  name,\n  action,\n  url,\n  conclusion,\n  updated_at,\n  id,\n  execution,\n  duration,\n  wait,\n  time_bucket,\n  -- is_queued,\n  -- is_in_progress,\n  is_success,\n  -- is_failure,\n  -- is_cancelled,\n  -- is_cancelled_in_progress,\n  queued,\n  in_progress,\n  success,\n  failure,\n  cancelled,\n  cancelled_in_progress\nFROM v3\nORDER BY updated_at\n",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Job Events",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "cancelled": true,
+              "cancelled_in_progress": true,
+              "completed": true,
+              "completed_at": true,
+              "conclusion": true,
+              "created_at": true,
+              "duration": true,
+              "execution": true,
+              "failure": true,
+              "id": true,
+              "in_progress": true,
+              "is_success": true,
+              "queued": true,
+              "repository": false,
+              "skipped": true,
+              "started_at": true,
+              "success": true,
+              "time_bucket": true,
+              "wait": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "id": 42,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "/^name$/",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0-cloud.3.b04cc88b",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Number of Completed Workflows",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "id": 41,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "/^name$/",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0-cloud.3.b04cc88b",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Number of Completed Jobs",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepBefore",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "duration (max) Continuous integration"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "id": 43,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A"
+        }
+      ],
+      "title": "Workflow Duration (including wait time)",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "duration": {
+                "aggregations": [
+                  "max",
+                  "mean"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "name": {
+                "aggregations": []
+              },
+              "time_bucket": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "updated_at": {
+                "aggregations": []
+              }
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "multi"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "Execution time does not include wait time",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepBefore",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 53,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Job Execution Time",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "duration": {
+                "aggregations": [
+                  "max"
+                ]
+              },
+              "execution": {
+                "aggregations": [
+                  "max",
+                  "mean"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "name": {
+                "aggregations": []
+              },
+              "time_bucket": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "updated_at": {
+                "aggregations": []
+              }
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "multi"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 44,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "wait"
+          }
+        ]
+      },
+      "pluginVersion": "9.5.2-cloud.1.f9fd074b",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A"
+        }
+      ],
+      "title": "Workflow Duration (including wait time)",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action": true,
+              "attempt": true,
+              "cancelled": true,
+              "completed": true,
+              "completed_at": true,
+              "completed_at - started_at": true,
+              "created_at": true,
+              "duration": false,
+              "execution": true,
+              "failure": true,
+              "id": true,
+              "in_progress": true,
+              "is_success": true,
+              "queued": true,
+              "repository": false,
+              "requested": true,
+              "skipped": true,
+              "started_at": true,
+              "success": true,
+              "time_bucket": true,
+              "wait": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "duration"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "Execution time does not include wait time",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 38,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "wait"
+          }
+        ]
+      },
+      "pluginVersion": "9.5.2-cloud.1.f9fd074b",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Job Execution Time",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action": true,
+              "cancelled": true,
+              "cancelled_in_progress": true,
+              "completed": true,
+              "completed_at": true,
+              "completed_at - started_at": true,
+              "created_at": true,
+              "duration": true,
+              "execution": false,
+              "failure": true,
+              "id": true,
+              "in_progress": true,
+              "is_success": true,
+              "queued": true,
+              "repository": false,
+              "skipped": true,
+              "started_at": true,
+              "success": true,
+              "time_bucket": true,
+              "wait": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "execution"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepBefore",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "id": 45,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A"
+        }
+      ],
+      "title": "Workflow Success Rate",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "id": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "is_success": {
+                "aggregations": [
+                  "sum",
+                  "count"
+                ],
+                "operation": "aggregate"
+              },
+              "success": {
+                "aggregations": [
+                  "count",
+                  "range"
+                ]
+              },
+              "time_bucket": {
+                "aggregations": [],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "binary": {
+              "left": "is_success (sum)",
+              "operator": "/",
+              "reducer": "sum",
+              "right": "is_success (count)"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "success_rate",
+            "binary": {
+              "left": "is_success (sum) / is_success (count)",
+              "operator": "*",
+              "reducer": "sum",
+              "right": "100"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "is_success (count)": true,
+              "is_success (sum)": true,
+              "is_success (sum) / is_success (count)": true,
+              "success (count)": true,
+              "success (range)": true,
+              "success (range) / success (count)": true,
+              "success (sum)": true,
+              "success (sum) / success (count)": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "multi"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "Duration includes wait time",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepBefore",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "id": 26,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Job Duration",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "duration": {
+                "aggregations": [
+                  "max"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "name": {
+                "aggregations": []
+              },
+              "time_bucket": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "updated_at": {
+                "aggregations": []
+              }
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "multi"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "id": 46,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A"
+        }
+      ],
+      "title": "Workflow Success Rate",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "attempt": {
+                "aggregations": []
+              },
+              "is_success": {
+                "aggregations": [
+                  "sum",
+                  "count"
+                ],
+                "operation": "aggregate"
+              },
+              "name": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "repository": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "success": {
+                "aggregations": [
+                  "sum",
+                  "count"
+                ]
+              },
+              "time_bucket": {
+                "aggregations": []
+              },
+              "workflow_name": {
+                "aggregations": [],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "binary": {
+              "left": "is_success (sum)",
+              "operator": "/",
+              "reducer": "sum",
+              "right": "is_success (count)"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "success_rate",
+            "binary": {
+              "left": "is_success (sum) / is_success (count)",
+              "operator": "*",
+              "reducer": "sum",
+              "right": "100"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "is_success (count)": true,
+              "is_success (sum)": true,
+              "is_success (sum) / is_success (count)": true,
+              "success (count)": true,
+              "success (sum)": true,
+              "success (sum) / success (count)": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "success_rate"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "Duration includes wait time",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "id": 54,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "wait"
+          }
+        ]
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Job Duration",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action": true,
+              "cancelled": true,
+              "cancelled_in_progress": true,
+              "completed": true,
+              "completed_at": true,
+              "completed_at - started_at": true,
+              "created_at": true,
+              "duration": false,
+              "execution": true,
+              "failure": true,
+              "id": true,
+              "in_progress": true,
+              "is_success": true,
+              "queued": true,
+              "repository": false,
+              "skipped": true,
+              "started_at": true,
+              "success": true,
+              "time_bucket": true,
+              "wait": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "duration"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "GitHub doesn't issue completed event for invalid workflow configs which might lead to some workflow runs showing as in progress forever.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "in_progress"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "id": 47,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A"
+        }
+      ],
+      "title": "Number of Workflows",
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "",
+            "binary": {
+              "left": "success",
+              "operator": "+",
+              "reducer": "sum",
+              "right": "failure"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "success + failure + skipped",
+            "binary": {
+              "left": "success + failure",
+              "reducer": "sum",
+              "right": "skipped"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "success + failure + skipped + cancelled",
+            "binary": {
+              "left": "success + failure + skipped",
+              "reducer": "sum",
+              "right": "cancelled"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "requested - (success + failure + skipped + cancelled)",
+            "binary": {
+              "left": "requested",
+              "operator": "-",
+              "reducer": "sum",
+              "right": "success + failure + skipped + cancelled"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "completed": {
+                "aggregations": []
+              },
+              "completed - in_progress": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "in_progress": {
+                "aggregations": [
+                  "first"
+                ]
+              },
+              "in_progress - completed": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "in_progress - success + failure": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "queued": {
+                "aggregations": [
+                  "first"
+                ]
+              },
+              "queued - in_progress": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "requested - (success + failure + skipped + cancelled)": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "requested - (success + failure + skipped)": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "requested - success + failure": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "updated_at": {
+                "aggregations": [],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "in_progress - completed": "in_progress",
+              "in_progress - success + failure": "in_progress",
+              "queued - in_progress": "queued",
+              "requested - (success + failure + skipped + cancelled)": "in_progress",
+              "requested - (success + failure + skipped)": "in_progress"
+            }
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepBefore",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "id": 33,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Job Wait Time",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "in_progress"
+                  }
+                },
+                "fieldName": "action"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "id": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "time_bucket": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "updated_at": {
+                "aggregations": []
+              },
+              "wait": {
+                "aggregations": [
+                  "max"
+                ],
+                "operation": "aggregate"
+              }
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "multi"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 48
+      },
+      "id": 50,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A"
+        }
+      ],
+      "title": "Number of In Progress Workflows",
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "action": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "attempt": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "duration": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "execution": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": []
+              },
+              "name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "repository": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "url": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "wait": {
+                "aggregations": [
+                  "last"
+                ]
+              },
+              "workflow_name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "requested"
+                  }
+                },
+                "fieldName": "action (last)"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action (last)": true,
+              "repository": false
+            },
+            "indexByName": {
+              "action (last)": 0,
+              "attempt": 3,
+              "name": 2,
+              "repository": 1,
+              "url": 4
+            },
+            "renameByName": {
+              "duration (last)": "duration",
+              "execution (last)": "execution",
+              "name (first)": "name",
+              "repository (first)": "repository",
+              "wait (last)": "wait",
+              "workflow_name (first)": "workflow_name"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "execution"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 422
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "delivery"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 361
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 48
+      },
+      "id": 49,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "wait"
+          }
+        ]
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A"
+        }
+      ],
+      "title": "In Progress Workflows",
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "action": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "attempt": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "duration": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "execution": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": []
+              },
+              "name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "repository": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "url": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "wait": {
+                "aggregations": [
+                  "last"
+                ]
+              },
+              "workflow_name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "requested"
+                  }
+                },
+                "fieldName": "action (last)"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action (last)": true
+            },
+            "indexByName": {
+              "action (last)": 0,
+              "attempt": 3,
+              "name": 2,
+              "repository": 1,
+              "url": 4
+            },
+            "renameByName": {
+              "duration (last)": "duration",
+              "execution (last)": "execution",
+              "name (first)": "name",
+              "repository (first)": "repository",
+              "wait (last)": "wait",
+              "workflow_name (first)": "workflow_name"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "execution"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "id": 35,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Job Wait Time",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "in_progress"
+                  }
+                },
+                "fieldName": "action"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action": true,
+              "cancelled": true,
+              "cancelled_in_progress": true,
+              "completed": true,
+              "completed_at": true,
+              "conclusion": true,
+              "created_at": true,
+              "duration": true,
+              "execution": true,
+              "failure": true,
+              "id": true,
+              "in_progress": true,
+              "is_success": true,
+              "queued": true,
+              "skipped": true,
+              "started_at": true,
+              "success": true,
+              "time_bucket": true,
+              "updated_at": false
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "wait"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepBefore",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "id": 28,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Job Success Rate",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "id": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "is_success": {
+                "aggregations": [
+                  "sum",
+                  "count"
+                ],
+                "operation": "aggregate"
+              },
+              "success": {
+                "aggregations": [
+                  "count",
+                  "range"
+                ]
+              },
+              "time_bucket": {
+                "aggregations": [],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "binary": {
+              "left": "is_success (sum)",
+              "operator": "/",
+              "reducer": "sum",
+              "right": "is_success (count)"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "success_rate",
+            "binary": {
+              "left": "is_success (sum) / is_success (count)",
+              "operator": "*",
+              "reducer": "sum",
+              "right": "100"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "is_success (count)": true,
+              "is_success (sum)": true,
+              "is_success (sum) / is_success (count)": true,
+              "success (count)": true,
+              "success (range)": true,
+              "success (range) / success (count)": true,
+              "success (sum)": true,
+              "success (sum) / success (count)": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "multi"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 62
+      },
+      "id": 30,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Job Success Rate",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "is_success": {
+                "aggregations": [
+                  "sum",
+                  "count"
+                ],
+                "operation": "aggregate"
+              },
+              "name": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "repository": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "success": {
+                "aggregations": [
+                  "sum",
+                  "count"
+                ]
+              },
+              "time_bucket": {
+                "aggregations": []
+              },
+              "workflow_name": {
+                "aggregations": [],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "binary": {
+              "left": "is_success (sum)",
+              "operator": "/",
+              "reducer": "sum",
+              "right": "is_success (count)"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "success_rate",
+            "binary": {
+              "left": "is_success (sum) / is_success (count)",
+              "operator": "*",
+              "reducer": "sum",
+              "right": "100"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "is_success (count)": true,
+              "is_success (sum)": true,
+              "is_success (sum) / is_success (count)": true,
+              "success (count)": true,
+              "success (sum)": true,
+              "success (sum) / success (count)": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "success_rate"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "We might go into negative numbers if the time range doesn't cover the initial queued/in_progress events, or if GitHub doesn't send us in_progress event for a cancelled job that has been assigned a runner.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 68
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Number of Jobs",
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "in_progress + cancelled",
+            "binary": {
+              "left": "in_progress",
+              "reducer": "sum",
+              "right": "cancelled"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "binary": {
+              "left": "queued",
+              "operator": "-",
+              "reducer": "sum",
+              "right": "in_progress + cancelled"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "",
+            "binary": {
+              "left": "success",
+              "operator": "+",
+              "reducer": "sum",
+              "right": "failure"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "success + failure + cancelled",
+            "binary": {
+              "left": "success + failure",
+              "reducer": "sum",
+              "right": "cancelled_in_progress"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "binary": {
+              "left": "in_progress",
+              "operator": "-",
+              "reducer": "sum",
+              "right": "success + failure + cancelled"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "completed": {
+                "aggregations": []
+              },
+              "completed - in_progress": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "in_progress": {
+                "aggregations": [
+                  "first"
+                ]
+              },
+              "in_progress - completed": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "in_progress - success + failure": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "in_progress - success + failure + cancelled": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "queued": {
+                "aggregations": [
+                  "first"
+                ]
+              },
+              "queued - in_progress": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "queued - in_progress + cancelled": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "updated_at": {
+                "aggregations": [],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "in_progress - completed": "in_progress",
+              "in_progress - success + failure": "in_progress",
+              "in_progress - success + failure + cancelled": "in_progress",
+              "queued - in_progress": "queued",
+              "queued - in_progress + cancelled": "queued"
+            }
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 78
+      },
+      "id": 51,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Number of In Progress Jobs",
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "action": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "execution": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": []
+              },
+              "name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "repository": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "url": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "wait": {
+                "aggregations": [
+                  "last"
+                ]
+              },
+              "workflow_name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "in_progress"
+                  }
+                },
+                "fieldName": "action (last)"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action (last)": true
+            },
+            "indexByName": {
+              "action (last)": 0,
+              "name": 3,
+              "repository": 1,
+              "url": 4,
+              "wait (last)": 5,
+              "workflow_name": 2
+            },
+            "renameByName": {
+              "execution (last)": "execution",
+              "name (first)": "name",
+              "repository (first)": "repository",
+              "wait (last)": "wait",
+              "workflow_name (first)": "workflow_name"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "execution"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 422
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "delivery"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 361
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 78
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "wait"
+          }
+        ]
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "In Progress Jobs",
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "action": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "execution": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": []
+              },
+              "name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "repository": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "url": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "wait": {
+                "aggregations": [
+                  "last"
+                ]
+              },
+              "workflow_name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "in_progress"
+                  }
+                },
+                "fieldName": "action (last)"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action (last)": true
+            },
+            "indexByName": {
+              "action (last)": 0,
+              "name": 3,
+              "repository": 1,
+              "url": 4,
+              "wait (last)": 5,
+              "workflow_name": 2
+            },
+            "renameByName": {
+              "execution (last)": "execution",
+              "name (first)": "name",
+              "repository (first)": "repository",
+              "wait (last)": "wait",
+              "workflow_name (first)": "workflow_name"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "execution"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 84
+      },
+      "id": 52,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Number of Queued Jobs",
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "action": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": []
+              },
+              "name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "repository": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "url": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "wait": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "workflow_name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "queued"
+                  }
+                },
+                "fieldName": "action (last)"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action (last)": true
+            },
+            "indexByName": {
+              "action (last)": 0,
+              "name": 3,
+              "repository": 1,
+              "url": 4,
+              "wait (last)": 5,
+              "workflow_name": 2
+            },
+            "renameByName": {
+              "name (first)": "name",
+              "repository (first)": "repository",
+              "wait (last)": "wait",
+              "workflow_name (first)": "workflow_name"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "wait"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 422
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "delivery"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 361
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 84
+      },
+      "id": 48,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "wait"
+          }
+        ]
+      },
+      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A"
+        }
+      ],
+      "title": "Queued Jobs",
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "action": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": []
+              },
+              "name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "repository": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              },
+              "url": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "wait": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "workflow_name": {
+                "aggregations": [
+                  "first"
+                ],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "queued"
+                  }
+                },
+                "fieldName": "action (last)"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "action (last)": true
+            },
+            "indexByName": {
+              "action (last)": 0,
+              "name": 3,
+              "repository": 1,
+              "url": 4,
+              "wait (last)": 5,
+              "workflow_name": 2
+            },
+            "renameByName": {
+              "name (first)": "name",
+              "repository (first)": "repository",
+              "wait (last)": "wait",
+              "workflow_name (first)": "workflow_name"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "wait"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "",
+  "revision": 1,
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": {
+          "type": "postgres",
+          "uid": "${DS_IPDX_RDS}"
+        },
+        "definition": "SELECT DISTINCT organization FROM github_events",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Org",
+        "multi": false,
+        "name": "org",
+        "options": [],
+        "query": "SELECT DISTINCT organization FROM github_events",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "",
+        "current": {},
+        "datasource": {
+          "type": "postgres",
+          "uid": "${DS_IPDX_RDS}"
+        },
+        "definition": "SELECT DISTINCT repository FROM github_events WHERE organization = '$org'",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Repository",
+        "multi": true,
+        "name": "repo",
+        "options": [],
+        "query": "SELECT DISTINCT repository FROM github_events WHERE organization = '$org'",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "Any",
+          "value": ".*"
+        },
+        "description": "POSIX Regular Expression matching branch name(s)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Branch",
+        "multi": false,
+        "name": "branch",
+        "options": [
+          {
+            "selected": true,
+            "text": "Any",
+            "value": ".*"
+          },
+          {
+            "selected": false,
+            "text": "master",
+            "value": "master"
+          },
+          {
+            "selected": false,
+            "text": "main",
+            "value": "main"
+          }
+        ],
+        "query": "Any : .*, master, main",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "day",
+          "value": "day"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Bucket",
+        "multi": false,
+        "name": "bucket",
+        "options": [
+          {
+            "selected": false,
+            "text": "second",
+            "value": "second"
+          },
+          {
+            "selected": false,
+            "text": "minute",
+            "value": "minute"
+          },
+          {
+            "selected": false,
+            "text": "hour",
+            "value": "hour"
+          },
+          {
+            "selected": true,
+            "text": "day",
+            "value": "day"
+          },
+          {
+            "selected": false,
+            "text": "week",
+            "value": "week"
+          },
+          {
+            "selected": false,
+            "text": "month",
+            "value": "month"
+          },
+          {
+            "selected": false,
+            "text": "quarter",
+            "value": "quarter"
+          },
+          {
+            "selected": false,
+            "text": "year",
+            "value": "year"
+          }
+        ],
+        "query": "second, minute, hour, day, week, month, quarter, year",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "Any",
+          "value": ".*"
+        },
+        "description": "POSIX Regular Expression matching labels array\n",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Runner",
+        "multi": false,
+        "name": "labels",
+        "options": [
+          {
+            "selected": true,
+            "text": "Any",
+            "value": ".*"
+          },
+          {
+            "selected": false,
+            "text": "self-hosted",
+            "value": "self-hosted"
+          },
+          {
+            "selected": false,
+            "text": "hosted",
+            "value": "^((?!self-hosted).)*$"
+          }
+        ],
+        "query": "Any : .*, self-hosted, hosted : ^((?!self-hosted).)*$",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-2d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "timezone": "",
+  "title": "GitHub Actions",
+  "uid": "a11c5e9e-b6f0-44b4-9b54-10f4207d110e",
+  "version": 116,
+  "weekStart": ""
+}
