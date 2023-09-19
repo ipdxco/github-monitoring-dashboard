@@ -43,7 +43,7 @@ resource "aws_db_instance" "rds" {
   instance_class         = "db.t3.micro"
   allocated_storage      = 100
   engine                 = "postgres"
-  engine_version         = "13.7"
+  engine_version         = "13.10"
 
   username               = var.rds_username
   password               = var.rds_password
