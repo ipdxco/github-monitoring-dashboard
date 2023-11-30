@@ -5,7 +5,7 @@
       "label": "IPDX RDS",
       "description": "",
       "type": "datasource",
-      "pluginId": "postgres",
+      "pluginId": "grafana-postgresql-datasource",
       "pluginName": "PostgreSQL"
     }
   ],
@@ -15,11 +15,11 @@
       "type": "grafana",
       "id": "grafana",
       "name": "Grafana",
-      "version": "10.0.0-cloud.3.b04cc88b"
+      "version": "10.3.0-63588"
     },
     {
       "type": "datasource",
-      "id": "postgres",
+      "id": "grafana-postgresql-datasource",
       "name": "PostgreSQL",
       "version": "1.0.0"
     },
@@ -73,7 +73,7 @@
   "panels": [
     {
       "datasource": {
-        "type": "postgres",
+        "type": "grafana-postgresql-datasource",
         "uid": "${DS_IPDX_RDS}"
       },
       "fieldConfig": {
@@ -131,17 +131,17 @@
           }
         ]
       },
-      "pluginVersion": "10.0.0-cloud.3.b04cc88b",
+      "pluginVersion": "10.3.0-63588",
       "targets": [
         {
           "datasource": {
-            "type": "postgres",
+            "type": "grafana-postgresql-datasource",
             "uid": "${DS_IPDX_RDS}"
           },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH v1 AS (\n  SELECT\n    repository,\n    payload -> 'workflow_run' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_run' ->> 'html_url' AS url,\n    (payload -> 'workflow_run' ->> 'updated_at')::timestamp AS updated_at,\n    (payload -> 'workflow_run' ->> 'run_started_at')::timestamp AS started_at,\n    payload -> 'workflow_run' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_run' ->> 'run_attempt' AS attempt\n  FROM github_events\n  WHERE\n    event = 'workflow_run' AND\n    organization = '$org' AND\n    repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_run' ->> 'head_branch' ~ '$branch'\n), v2 AS (\n  SELECT * \n  FROM v1 \n  UNION ALL\n  SELECT \n    repository,\n    name,\n    'requested' AS action,\n    url,\n    started_at AS updated_at,\n    started_at,\n    '' AS conclusion,\n    attempt\n  FROM v1\n  WHERE\n    action = 'completed' AND\n    attempt <> '1'\n), v3 AS (\n  SELECT *,\n    CASE WHEN action = 'requested' THEN NOW() ELSE updated_at END AS completed_at,\n    CASE WHEN action = 'requested' THEN 1 ELSE 0 END AS is_requested,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'skipped' THEN 1 ELSE 0 END AS is_skipped,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v2\n), v4 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$repo], 1) = 1 THEN name ELSE repository END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS duration,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_requested) OVER (ORDER BY updated_at) AS requested,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_skipped) OVER (ORDER BY updated_at) AS skipped,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled\n  FROM v3\n)\nSELECT\n  repository,\n  name,\n  action,\n  url,\n  conclusion,\n  attempt,\n  updated_at,\n  id,\n  duration,\n  time_bucket,\n  -- is_requested,\n  is_success,\n  -- is_failure,\n  -- is_skipped,\n  -- is_cancelled,\n  requested,\n  success,\n  failure,\n  skipped,\n  cancelled\nFROM v4\nORDER BY updated_at\n",
+          "rawSql": "WITH v1 AS (\n  SELECT\n    repository,\n    payload -> 'workflow_run' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_run' ->> 'html_url' AS url,\n    (payload -> 'workflow_run' ->> 'updated_at')::timestamp AS updated_at,\n    (payload -> 'workflow_run' ->> 'run_started_at')::timestamp AS started_at,\n    payload -> 'workflow_run' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_run' ->> 'run_attempt' AS attempt\n  FROM github_events\n  WHERE\n    event = 'workflow_run' AND\n    organization = '$org' AND\n    repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_run' ->> 'head_branch' ~ '$branch' AND \n    payload -> 'workflow_run' ->> 'name' IN ($workflow)\n), v2 AS (\n  SELECT * \n  FROM v1 \n  UNION ALL\n  SELECT \n    repository,\n    name,\n    'requested' AS action,\n    url,\n    started_at AS updated_at,\n    started_at,\n    '' AS conclusion,\n    attempt\n  FROM v1\n  WHERE\n    action = 'completed' AND\n    attempt <> '1'\n), v3 AS (\n  SELECT *,\n    CASE WHEN action = 'requested' THEN NOW() ELSE updated_at END AS completed_at,\n    CASE WHEN action = 'requested' THEN 1 ELSE 0 END AS is_requested,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'skipped' THEN 1 ELSE 0 END AS is_skipped,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v2\n), v4 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$repo], 1) = 1 THEN name ELSE repository END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS duration,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_requested) OVER (ORDER BY updated_at) AS requested,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_skipped) OVER (ORDER BY updated_at) AS skipped,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled\n  FROM v3\n)\nSELECT\n  repository,\n  name,\n  action,\n  url,\n  conclusion,\n  attempt,\n  updated_at,\n  id,\n  duration,\n  time_bucket,\n  -- is_requested,\n  is_success,\n  -- is_failure,\n  -- is_skipped,\n  -- is_cancelled,\n  requested,\n  success,\n  failure,\n  skipped,\n  cancelled\nFROM v4\nORDER BY updated_at\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -190,7 +190,7 @@
     },
     {
       "datasource": {
-        "type": "postgres",
+        "type": "grafana-postgresql-datasource",
         "uid": "${DS_IPDX_RDS}"
       },
       "fieldConfig": {
@@ -316,17 +316,17 @@
         "showHeader": true,
         "sortBy": []
       },
-      "pluginVersion": "10.0.0-cloud.3.b04cc88b",
+      "pluginVersion": "10.3.0-63588",
       "targets": [
         {
           "datasource": {
-            "type": "postgres",
+            "type": "grafana-postgresql-datasource",
             "uid": "${DS_IPDX_RDS}"
           },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH v1 AS (\n  SELECT\n    repository,\n    payload -> 'workflow_job' ->> 'workflow_name' AS workflow_name,\n    payload -> 'workflow_job' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_job' ->> 'html_url' AS url,\n    (payload -> 'workflow_job' ->> 'created_at')::timestamp AS _created_at,\n    (payload -> 'workflow_job' ->> 'started_at')::timestamp AS _started_at,\n    (payload -> 'workflow_job' ->> 'completed_at')::timestamp AS _completed_at,\n    payload -> 'workflow_job' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_job' ->> 'runner_name' AS runner\n  FROM github_events\n  WHERE\n    event = 'workflow_job' AND\n    organization = '$org' AND\n    repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_job' ->> 'head_branch' ~ '$branch' AND\n    payload -> 'workflow_job' ->> 'labels' ~ '$labels'\n), v2 AS (\n  SELECT *,\n    COALESCE(_completed_at, NOW()) AS completed_at,\n    COALESCE(_started_at, NOW()) AS started_at,\n    COALESCE(_created_at, NOW()) AS created_at,\n    COALESCE(_completed_at, _started_at, _created_at) AS updated_at,\n    CASE WHEN action = 'queued' THEN 1 ELSE 0 END AS is_queued,\n    CASE WHEN action = 'in_progress' THEN 1 ELSE 0 END AS is_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner <> '' THEN 1 ELSE 0 END AS is_cancelled_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner = '' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v1\n), v3 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$repo], 1) = 1 THEN workflow_name || ' / ' || name ELSE repository END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS execution,\n    EXTRACT(EPOCH FROM completed_at - created_at) / 60.0 AS duration,\n    EXTRACT(EPOCH FROM started_at - created_at) / 60.0 AS wait,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_queued) OVER (ORDER BY updated_at) AS queued,\n    SUM(is_in_progress) OVER (ORDER BY updated_at) AS in_progress,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled,\n    SUM(is_cancelled_in_progress) OVER (ORDER BY updated_at) AS cancelled_in_progress\n  FROM v2\n)\nSELECT\n  repository,\n  workflow_name,\n  name,\n  action,\n  url,\n  conclusion,\n  updated_at,\n  id,\n  execution,\n  duration,\n  wait,\n  time_bucket,\n  -- is_queued,\n  -- is_in_progress,\n  is_success,\n  -- is_failure,\n  -- is_cancelled,\n  -- is_cancelled_in_progress,\n  queued,\n  in_progress,\n  success,\n  failure,\n  cancelled,\n  cancelled_in_progress\nFROM v3\nORDER BY updated_at\n",
+          "rawSql": "WITH v1 AS (\n  SELECT\n    repository,\n    payload -> 'workflow_job' ->> 'workflow_name' AS workflow_name,\n    payload -> 'workflow_job' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_job' ->> 'html_url' AS url,\n    (payload -> 'workflow_job' ->> 'created_at')::timestamp AS _created_at,\n    (payload -> 'workflow_job' ->> 'started_at')::timestamp AS _started_at,\n    (payload -> 'workflow_job' ->> 'completed_at')::timestamp AS _completed_at,\n    payload -> 'workflow_job' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_job' ->> 'runner_name' AS runner\n  FROM github_events\n  WHERE\n    event = 'workflow_job' AND\n    organization = '$org' AND\n    repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_job' ->> 'head_branch' ~ '$branch' AND\n    payload -> 'workflow_job' ->> 'labels' ~ '$runner' AND \n    payload -> 'workflow_job' ->> 'labels' IN ($label) AND\n    payload -> 'workflow_job' ->> 'workflow_name' IN ($workflow) AND\n    payload -> 'workflow_job' ->> 'name' IN ($job)\n), v2 AS (\n  SELECT *,\n    COALESCE(_completed_at, NOW()) AS completed_at,\n    COALESCE(_started_at, NOW()) AS started_at,\n    COALESCE(_created_at, NOW()) AS created_at,\n    COALESCE(_completed_at, _started_at, _created_at) AS updated_at,\n    CASE WHEN action = 'queued' THEN 1 ELSE 0 END AS is_queued,\n    CASE WHEN action = 'in_progress' THEN 1 ELSE 0 END AS is_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner <> '' THEN 1 ELSE 0 END AS is_cancelled_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner = '' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v1\n), v3 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$repo], 1) = 1 THEN workflow_name || ' / ' || name ELSE repository END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS execution,\n    EXTRACT(EPOCH FROM completed_at - created_at) / 60.0 AS duration,\n    EXTRACT(EPOCH FROM started_at - created_at) / 60.0 AS wait,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_queued) OVER (ORDER BY updated_at) AS queued,\n    SUM(is_in_progress) OVER (ORDER BY updated_at) AS in_progress,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled,\n    SUM(is_cancelled_in_progress) OVER (ORDER BY updated_at) AS cancelled_in_progress\n  FROM v2\n)\nSELECT\n  repository,\n  workflow_name,\n  name,\n  action,\n  url,\n  conclusion,\n  updated_at,\n  id,\n  execution,\n  duration,\n  wait,\n  time_bucket,\n  -- is_queued,\n  -- is_in_progress,\n  is_success,\n  -- is_failure,\n  -- is_cancelled,\n  -- is_cancelled_in_progress,\n  queued,\n  in_progress,\n  success,\n  failure,\n  cancelled,\n  cancelled_in_progress\nFROM v3\nORDER BY updated_at\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -426,9 +426,10 @@
           "fields": "/^name$/",
           "values": false
         },
-        "textMode": "auto"
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "10.0.0-cloud.3.b04cc88b",
+      "pluginVersion": "10.3.0-63588",
       "targets": [
         {
           "datasource": {
@@ -527,9 +528,10 @@
           "fields": "/^name$/",
           "values": false
         },
-        "textMode": "auto"
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "10.0.0-cloud.3.b04cc88b",
+      "pluginVersion": "10.3.0-63588",
       "targets": [
         {
           "datasource": {
@@ -594,6 +596,7 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
@@ -607,6 +610,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "stepBefore",
             "lineWidth": 1,
             "pointSize": 5,
@@ -646,7 +650,7 @@
               "options": {
                 "mode": "exclude",
                 "names": [
-                  "duration (max) Continuous integration"
+                  "duration (mean) Continuous integration"
                 ],
                 "prefix": "All except:",
                 "readOnly": true
@@ -782,6 +786,7 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
@@ -795,6 +800,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "stepBefore",
             "lineWidth": 1,
             "pointSize": 5,
@@ -997,7 +1003,7 @@
           }
         ]
       },
-      "pluginVersion": "9.5.2-cloud.1.f9fd074b",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -1151,7 +1157,7 @@
           }
         ]
       },
-      "pluginVersion": "9.5.2-cloud.1.f9fd074b",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -1255,6 +1261,7 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
@@ -1268,6 +1275,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "stepBefore",
             "lineWidth": 1,
             "pointSize": 5,
@@ -1464,6 +1472,7 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
@@ -1477,6 +1486,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "stepBefore",
             "lineWidth": 1,
             "pointSize": 5,
@@ -1665,7 +1675,7 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -1867,12 +1877,12 @@
         "showHeader": true,
         "sortBy": [
           {
-            "desc": true,
-            "displayName": "wait"
+            "desc": false,
+            "displayName": "conclusion"
           }
         ]
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -1977,6 +1987,7 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
@@ -1990,6 +2001,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "stepAfter",
             "lineWidth": 1,
             "pointSize": 5,
@@ -2222,6 +2234,7 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
@@ -2235,6 +2248,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "stepBefore",
             "lineWidth": 1,
             "pointSize": 5,
@@ -2394,9 +2408,10 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -2609,7 +2624,7 @@
           }
         ]
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -2789,7 +2804,7 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -2874,6 +2889,7 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
@@ -2887,6 +2903,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "stepBefore",
             "lineWidth": 1,
             "pointSize": 5,
@@ -3123,7 +3140,7 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -3279,6 +3296,7 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
@@ -3292,6 +3310,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "stepAfter",
             "lineWidth": 1,
             "pointSize": 5,
@@ -3543,9 +3562,10 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -3747,7 +3767,7 @@
           }
         ]
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -3910,9 +3930,10 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -4108,7 +4129,7 @@
           }
         ]
       },
-      "pluginVersion": "9.5.0-cloud.5.a016665c",
+      "pluginVersion": "10.3.0-63516",
       "targets": [
         {
           "datasource": {
@@ -4223,15 +4244,14 @@
   ],
   "refresh": "",
   "revision": 1,
-  "schemaVersion": 38,
-  "style": "dark",
+  "schemaVersion": 39,
   "tags": [],
   "templating": {
     "list": [
       {
         "current": {},
         "datasource": {
-          "type": "postgres",
+          "type": "grafana-postgresql-datasource",
           "uid": "${DS_IPDX_RDS}"
         },
         "definition": "SELECT DISTINCT organization FROM github_events",
@@ -4252,7 +4272,7 @@
         "allValue": "",
         "current": {},
         "datasource": {
-          "type": "postgres",
+          "type": "grafana-postgresql-datasource",
           "uid": "${DS_IPDX_RDS}"
         },
         "definition": "SELECT DISTINCT repository FROM github_events WHERE organization = '$org'",
@@ -4271,7 +4291,7 @@
       },
       {
         "current": {
-          "selected": true,
+          "selected": false,
           "text": "Any",
           "value": ".*"
         },
@@ -4305,9 +4325,9 @@
       },
       {
         "current": {
-          "selected": true,
-          "text": "day",
-          "value": "day"
+          "selected": false,
+          "text": "minute",
+          "value": "minute"
         },
         "hide": 0,
         "includeAll": false,
@@ -4321,7 +4341,7 @@
             "value": "second"
           },
           {
-            "selected": false,
+            "selected": true,
             "text": "minute",
             "value": "minute"
           },
@@ -4331,7 +4351,7 @@
             "value": "hour"
           },
           {
-            "selected": true,
+            "selected": false,
             "text": "day",
             "value": "day"
           },
@@ -4364,23 +4384,23 @@
       {
         "current": {
           "selected": false,
-          "text": "Any",
-          "value": ".*"
+          "text": "self-hosted",
+          "value": "self-hosted"
         },
         "description": "POSIX Regular Expression matching labels array\n",
         "hide": 0,
         "includeAll": false,
         "label": "Runner",
         "multi": false,
-        "name": "labels",
+        "name": "runner",
         "options": [
           {
-            "selected": true,
+            "selected": false,
             "text": "Any",
             "value": ".*"
           },
           {
-            "selected": false,
+            "selected": true,
             "text": "self-hosted",
             "value": "self-hosted"
           },
@@ -4394,11 +4414,74 @@
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_IPDX_RDS}"
+        },
+        "definition": "SELECT DISTINCT payload -> 'workflow_run' ->> 'name' FROM github_events WHERE event = 'workflow_run' AND organization = '$org' AND repository in ($repo)",
+        "description": "",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Workflow",
+        "multi": true,
+        "name": "workflow",
+        "options": [],
+        "query": "SELECT DISTINCT payload -> 'workflow_run' ->> 'name' FROM github_events WHERE event = 'workflow_run' AND organization = '$org' AND repository in ($repo)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_IPDX_RDS}"
+        },
+        "definition": "SELECT DISTINCT payload -> 'workflow_job' ->> 'name' FROM github_events WHERE event = 'workflow_job' AND organization = '$org' AND repository in ($repo) AND payload -> 'workflow_job' ->> 'workflow_name' in ($workflow)",
+        "description": "",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Job",
+        "multi": true,
+        "name": "job",
+        "options": [],
+        "query": "SELECT DISTINCT payload -> 'workflow_job' ->> 'name' FROM github_events WHERE event = 'workflow_job' AND organization = '$org' AND repository in ($repo) AND payload -> 'workflow_job' ->> 'workflow_name' in ($workflow)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_IPDX_RDS}"
+        },
+        "definition": "SELECT DISTINCT payload -> 'workflow_job' ->> 'labels' FROM github_events WHERE event = 'workflow_job' AND organization = '$org' AND repository in ($repo) AND payload -> 'workflow_job' ->> 'workflow_name' in ($workflow) AND payload -> 'workflow_job' ->> 'name' in ($job)",
+        "description": "",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Label",
+        "multi": true,
+        "name": "label",
+        "options": [],
+        "query": "SELECT DISTINCT payload -> 'workflow_job' ->> 'labels' FROM github_events WHERE event = 'workflow_job' AND organization = '$org' AND repository in ($repo) AND payload -> 'workflow_job' ->> 'workflow_name' in ($workflow) AND payload -> 'workflow_job' ->> 'name' in ($job)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
       }
     ]
   },
   "time": {
-    "from": "now-2d",
+    "from": "now-3h",
     "to": "now"
   },
   "timepicker": {
@@ -4415,6 +4498,6 @@
   "timezone": "",
   "title": "GitHub Actions",
   "uid": "a11c5e9e-b6f0-44b4-9b54-10f4207d110e",
-  "version": 116,
+  "version": 125,
   "weekStart": ""
 }
