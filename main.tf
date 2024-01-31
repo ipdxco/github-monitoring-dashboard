@@ -1,12 +1,20 @@
-terraform {
-  backend "s3" {
-    # account_id = "642361402189"
-    region               = "us-east-1"
-    bucket               = "tf-aws-gh-observability"
-    key                  = "terraform.tfstate"
-    dynamodb_table       = "tf-aws-gh-observability"
-  }
+# terraform init
+# export AWS_ACCESS_KEY_ID=
+# export AWS_SECRET_ACCESS_KEY=
+# export AWS_REGION=
+# export TF_VAR_name=
+# export TF_VAR_rds_username=
+# export TF_VAR_rds_password=
+# export TF_VAR_github_app_key_base64=
+# export TF_VAR_github_app_id=
+# export TF_VAR_github_app_webhook_secret=
+# export TF_VAR_organization_allow_list=
+# export TF_VAR_log_type=
+# export TF_VAR_log_level=
+# export TF_VAR_logging_retention_in_days=
+# terraform apply
 
+terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -25,12 +33,14 @@ terraform {
 
 locals {
   tags = {
-    Name = "Terraform AWS GitHub Observability"
-    Url  = "https://github.com/pl-strflt/tf-aws-gh-observability"
+    Name = "GitHub Monitoring Dashboard"
+    Url  = "https://github.com/ipdxco/github-monitoring-dashboard"
   }
 }
 
 provider "aws" {}
+
+variable "name" {}
 
 variable "rds_username" {}
 
@@ -45,7 +55,7 @@ variable "github_app_webhook_secret" {}
 variable "organization_allow_list" {
   description = "List of org names allowed to use the github app"
   type        = list(string)
-  default     = ["filecoin-project", "filecoin-shipyard", "ipfs", "ipfs-examples", "ipfs-shipyard", "ipld", "ipni", "libp2p", "multiformats", "pl-strflt", "plprobelab", "testground", "quic-go"]
+  default     = []
 }
 
 variable "log_type" {

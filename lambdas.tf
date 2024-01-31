@@ -1,5 +1,5 @@
 resource "aws_apigatewayv2_api" "webhook" {
-  name          = "gateway-tf-aws-gh-observability"
+  name          = "gateway-github-monitoring-dashboard"
   protocol_type = "HTTP"
   tags          = local.tags
 }
@@ -51,7 +51,7 @@ resource "aws_apigatewayv2_integration" "webhook" {
 resource "aws_lambda_function" "webhook" {
   filename          = "${path.module}/lambdas/webhook/webhook.zip"
   source_code_hash  = filebase64sha256("${path.module}/lambdas/webhook/webhook.zip")
-  function_name     = "webhook-tf-aws-gh-observability"
+  function_name     = "webhook-github-monitoring-dashboard"
   role              = aws_iam_role.webhook_lambda.arn
   handler           = "index.githubWebhook"
   runtime           = "nodejs16.x"
@@ -95,14 +95,14 @@ data "aws_iam_policy_document" "lambda_assume_role_policy" {
 }
 
 resource "aws_iam_role" "webhook_lambda" {
-  name                 = "role-tf-aws-gh-observability"
+  name                 = "role-github-monitoring-dashboard"
   assume_role_policy   = data.aws_iam_policy_document.lambda_assume_role_policy.json
-  path                 = "/tf-aws-gh-observability/"
+  path                 = "/github-monitoring-dashboard/"
   tags                 = local.tags
 }
 
 resource "aws_iam_role_policy" "webhook_logging" {
-  name = "logging-policy-tf-aws-gh-observability"
+  name = "logging-policy-github-monitoring-dashboard"
   role = aws_iam_role.webhook_lambda.name
   policy = jsonencode({
     Version = "2012-10-17"
@@ -120,7 +120,7 @@ resource "aws_iam_role_policy" "webhook_logging" {
 }
 
 resource "aws_iam_role_policy" "webhook_ssm" {
-  name = "ssm-policy-tf-aws-gh-observability"
+  name = "ssm-policy-github-monitoring-dashboard"
   role = aws_iam_role.webhook_lambda.name
 
   policy = jsonencode({

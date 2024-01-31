@@ -2,8 +2,8 @@ resource "aws_iam_user" "cloud-watcher" {
   name = "cloud-watcher"
 
   tags = {
-    Name = "Terraform AWS GitHub Observability"
-    Url  = "https://github.com/pl-strflt/tf-aws-gh-observability"
+    Name = "GitHub Monitoring Dashboard"
+    Url  = "https://github.com/ipdxco/github-monitoring-dashboard"
   }
 }
 

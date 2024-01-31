@@ -1,12 +1,12 @@
 resource "aws_db_subnet_group" "rds" {
-  name       = "rds-tf-aws-gh-observability"
+  name       = "rds-github-monitoring-dashboard"
   subnet_ids = module.vpc.public_subnets
 
   tags = local.tags
 }
 
 resource "aws_security_group" "rds" {
-  name   = "rds-tf-aws-gh-observability"
+  name   = "rds-github-monitoring-dashboard"
   vpc_id = module.vpc.vpc_id
 
   ingress {
@@ -27,7 +27,7 @@ resource "aws_security_group" "rds" {
 }
 
 resource "aws_db_parameter_group" "rds" {
-  name   = "rds-tf-aws-gh-observability"
+  name   = "rds-github-monitoring-dashboard"
   family = "postgres13"
 
   parameter {
@@ -39,7 +39,7 @@ resource "aws_db_parameter_group" "rds" {
 }
 
 resource "aws_db_instance" "rds" {
-  identifier             = "rds-tf-aws-gh-observability"
+  identifier             = "rds-github-monitoring-dashboard"
   instance_class         = "db.t3.micro"
   allocated_storage      = 100
   engine                 = "postgres"

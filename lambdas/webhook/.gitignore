@@ -11,3 +11,5 @@ build/
 *.zip
 
 npm-debug.log*
+
+coverage/
