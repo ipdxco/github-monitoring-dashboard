@@ -39,20 +39,20 @@ export async function handle(headers: IncomingHttpHeaders, body: string, timesta
     return response;
   }
 
-  const rds = await RDS.get()
-  const insert = await rds.insert(event, delivery, organization, repository, receipt, body)
+  const rds = await RDS.get();
+  const insert = await rds.insert(event, delivery, organization, repository, receipt, body);
 
   if (insert.rowCount != 1) {
     return {
       statusCode: 500,
       body: JSON.stringify({
-        statusMessage: "Failed to insert the event into the database."
-      })
-    }
+        statusMessage: 'Failed to insert the event into the database.',
+      }),
+    };
   }
 
   return {
-    statusCode: 201
+    statusCode: 201,
   };
 }
 
@@ -66,23 +66,24 @@ async function verifyOrganization(headers: IncomingHttpHeaders, body: string): P
     return {
       statusCode: 500,
       body: JSON.stringify({
-        statusMessage: "Github event doesn't have organization. This webhook requires an organization header to be configured."
-      })
-    }
+        statusMessage:
+          "Github event doesn't have organization. This webhook requires an organization header to be configured.",
+      }),
+    };
   }
 
-  if (! organizationAllowList.includes(organization)) {
+  if (!organizationAllowList.includes(organization)) {
     return {
       statusCode: 403,
       body: JSON.stringify({
-        statusMessage: `Received event from unauthorized organization ${organization}`
-      })
-    }
+        statusMessage: `Received event from unauthorized organization ${organization}`,
+      }),
+    };
   }
 
   return {
-    statusCode: 200
-  }
+    statusCode: 200,
+  };
 }
 
 async function verifySignature(headers: IncomingHttpHeaders, body: string): Promise<Response> {
@@ -96,9 +97,9 @@ async function verifySignature(headers: IncomingHttpHeaders, body: string): Prom
     return {
       statusCode: 500,
       body: JSON.stringify({
-        statusMessage: "Github event doesn't have signature. This webhook requires a secret to be configured."
-      })
-    }
+        statusMessage: "Github event doesn't have signature. This webhook requires a secret to be configured.",
+      }),
+    };
   }
 
   const secret = await getParameterValue('github_app_webhook_secret');
@@ -110,11 +111,11 @@ async function verifySignature(headers: IncomingHttpHeaders, body: string): Prom
     return {
       statusCode: 401,
       body: JSON.stringify({
-        statusMessage: "Unable to verify signature!"
-      })
-    }
+        statusMessage: 'Unable to verify signature!',
+      }),
+    };
   }
   return {
-    statusCode: 200
-  }
+    statusCode: 200,
+  };
 }

@@ -3,9 +3,9 @@ import { mocked } from 'jest-mock';
 import nock from 'nock';
 
 import workflowjob_event from '../../test/resources/github_workflowjob_event.json';
+import { RDS } from '../rds';
 import { getParameterValue } from '../ssm';
 import { handle } from './handler';
-import { RDS } from '../rds';
 
 jest.mock('../ssm');
 jest.mock('../rds');
@@ -33,10 +33,10 @@ describe('handler', () => {
 
     const mockedRds = mocked(RDS);
     const mockedInsert = jest.fn();
-    mockedInsert.mockResolvedValue({rowCount: 1})
+    mockedInsert.mockResolvedValue({ rowCount: 1 });
     mockedRds.get.mockResolvedValueOnce({
-      insert: mockedInsert
-    } as unknown as RDS)
+      insert: mockedInsert,
+    } as unknown as RDS);
   });
 
   afterEach(() => {
@@ -57,7 +57,11 @@ describe('handler', () => {
     it('handles workflow job events', async () => {
       const event = JSON.stringify(workflowjob_event);
       const resp = await handle(
-        { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job', 'X-GitHub-Organization': 'philips-labs' },
+        {
+          'X-Hub-Signature': await webhooks.sign(event),
+          'X-GitHub-Event': 'workflow_job',
+          'X-GitHub-Organization': 'philips-labs',
+        },
         event,
         0,
       );
@@ -67,7 +71,11 @@ describe('handler', () => {
     it('handles workflow job events with 256 hash signature', async () => {
       const event = JSON.stringify(workflowjob_event);
       const resp = await handle(
-        { 'X-Hub-Signature-256': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job', 'X-GitHub-Organization': 'philips-labs' },
+        {
+          'X-Hub-Signature-256': await webhooks.sign(event),
+          'X-GitHub-Event': 'workflow_job',
+          'X-GitHub-Organization': 'philips-labs',
+        },
         event,
         0,
       );
@@ -78,7 +86,11 @@ describe('handler', () => {
       const event = JSON.stringify(workflowjob_event);
       process.env.ORGANIZATION_ALLOW_LIST = '[]';
       const resp = await handle(
-        { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job', 'X-GitHub-Organization': 'philips-labs' },
+        {
+          'X-Hub-Signature': await webhooks.sign(event),
+          'X-GitHub-Event': 'workflow_job',
+          'X-GitHub-Organization': 'philips-labs',
+        },
         event,
         0,
       );

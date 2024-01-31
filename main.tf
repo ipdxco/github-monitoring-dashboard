@@ -3,8 +3,8 @@
 # export AWS_SECRET_ACCESS_KEY=
 # export AWS_REGION=
 # export TF_VAR_name=
-# export TF_VAR_rds_username=
-# export TF_VAR_rds_password=
+# export TF_VAR_rds_rw_password=
+# export TF_VAR_rds_ro_password=
 # export TF_VAR_github_app_key_base64=
 # export TF_VAR_github_app_id=
 # export TF_VAR_github_app_webhook_secret=
@@ -18,7 +18,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 4.0"
+      version = "5.9.0"
     }
     local = {
       source = "hashicorp/local"
@@ -42,9 +42,9 @@ provider "aws" {}
 
 variable "name" {}
 
-variable "rds_username" {}
+variable "rds_rw_password" {}
 
-variable "rds_password" {}
+variable "rds_ro_password" {}
 
 variable "github_app_key_base64" {}
 

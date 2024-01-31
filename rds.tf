@@ -45,8 +45,8 @@ resource "aws_db_instance" "rds" {
   engine                 = "postgres"
   engine_version         = "13.10"
 
-  username               = var.rds_username
-  password               = var.rds_password
+  username               = "read_write"
+  password               = var.rds_rw_password
 
   db_subnet_group_name   = aws_db_subnet_group.rds.name
   vpc_security_group_ids = [aws_security_group.rds.id]
@@ -57,6 +57,14 @@ resource "aws_db_instance" "rds" {
   tags = local.tags
 
   provisioner "local-exec" {
-    command = "PGPASSWORD=${self.password} psql --host=${self.address} --port=${self.port} --user=${self.username} --dbname=postgres < ${path.module}/schemas/*.sql"
+    command = <<-EOT
+      for file in ${path.module}/schemas/*.sql; do
+        export PASSWORD=${var.rds_ro_password};
+        path=$(realpath $file);
+        command=$(envsubst -i $path);
+        PGPASSWORD=${self.password} psql --host=${self.address} --port=${self.port} --user=${self.username} --dbname=postgres --command "$command";
+      done
+    EOT
+    interpreter = [ "/usr/bin/env", "bash", "-c" ]
   }
 }
