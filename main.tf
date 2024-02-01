@@ -97,3 +97,7 @@ variable "logging_retention_in_days" {
 }
 
 data "aws_region" "default" {}
+
+output "webhook_endpoint" {
+  value = "${aws_apigatewayv2_api.webhook.api_endpoint}/webhook"
+}

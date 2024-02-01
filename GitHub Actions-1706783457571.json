@@ -15,7 +15,7 @@
       "type": "grafana",
       "id": "grafana",
       "name": "Grafana",
-      "version": "10.3.0-63588"
+      "version": "10.4.0-65875"
     },
     {
       "type": "datasource",
@@ -101,7 +101,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": []
       },
@@ -131,7 +132,7 @@
           }
         ]
       },
-      "pluginVersion": "10.3.0-63588",
+      "pluginVersion": "10.4.0-65875",
       "targets": [
         {
           "datasource": {
@@ -141,7 +142,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH v1 AS (\n  SELECT\n    repository,\n    payload -> 'workflow_run' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_run' ->> 'html_url' AS url,\n    (payload -> 'workflow_run' ->> 'updated_at')::timestamp AS updated_at,\n    (payload -> 'workflow_run' ->> 'run_started_at')::timestamp AS started_at,\n    payload -> 'workflow_run' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_run' ->> 'run_attempt' AS attempt\n  FROM github_events\n  WHERE\n    event = 'workflow_run' AND\n    organization = '$org' AND\n    repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_run' ->> 'head_branch' ~ '$branch' AND \n    payload -> 'workflow_run' ->> 'name' IN ($workflow)\n), v2 AS (\n  SELECT * \n  FROM v1 \n  UNION ALL\n  SELECT \n    repository,\n    name,\n    'requested' AS action,\n    url,\n    started_at AS updated_at,\n    started_at,\n    '' AS conclusion,\n    attempt\n  FROM v1\n  WHERE\n    action = 'completed' AND\n    attempt <> '1'\n), v3 AS (\n  SELECT *,\n    CASE WHEN action = 'requested' THEN NOW() ELSE updated_at END AS completed_at,\n    CASE WHEN action = 'requested' THEN 1 ELSE 0 END AS is_requested,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'skipped' THEN 1 ELSE 0 END AS is_skipped,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v2\n), v4 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$repo], 1) = 1 THEN name ELSE repository END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS duration,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_requested) OVER (ORDER BY updated_at) AS requested,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_skipped) OVER (ORDER BY updated_at) AS skipped,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled\n  FROM v3\n)\nSELECT\n  repository,\n  name,\n  action,\n  url,\n  conclusion,\n  attempt,\n  updated_at,\n  id,\n  duration,\n  time_bucket,\n  -- is_requested,\n  is_success,\n  -- is_failure,\n  -- is_skipped,\n  -- is_cancelled,\n  requested,\n  success,\n  failure,\n  skipped,\n  cancelled\nFROM v4\nORDER BY updated_at\n",
+          "rawSql": "WITH v1 AS (\n  SELECT\n    organization,\n    repository,\n    payload -> 'workflow_run' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_run' ->> 'html_url' AS url,\n    (payload -> 'workflow_run' ->> 'updated_at')::timestamp AS updated_at,\n    (payload -> 'workflow_run' ->> 'run_started_at')::timestamp AS started_at,\n    payload -> 'workflow_run' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_run' ->> 'run_attempt' AS attempt\n  FROM github_events\n  WHERE\n    event = 'workflow_run' AND\n    organization IN ($org) AND\n    organization || '/' || repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_run' ->> 'head_branch' LIKE '$branch' AND \n    payload -> 'workflow_run' ->> 'name' LIKE '$workflow'\n), v2 AS (\n  SELECT * \n  FROM v1 \n  UNION ALL\n  SELECT \n    organization,\n    repository,\n    name,\n    'requested' AS action,\n    url,\n    started_at AS updated_at,\n    started_at,\n    '' AS conclusion,\n    attempt\n  FROM v1\n  WHERE\n    action = 'completed' AND\n    attempt <> '1'\n), v3 AS (\n  SELECT *,\n    CASE WHEN action = 'requested' THEN NOW() ELSE updated_at END AS completed_at,\n    CASE WHEN action = 'requested' THEN 1 ELSE 0 END AS is_requested,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'skipped' THEN 1 ELSE 0 END AS is_skipped,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v2\n), v4 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$org], 1) = 1 \n      THEN CASE WHEN array_length(ARRAY[$repo], 1) = 1 \n        THEN name \n        ELSE organization || '/' || repository \n      END\n      ELSE organization\n    END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS duration,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_requested) OVER (ORDER BY updated_at) AS requested,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_skipped) OVER (ORDER BY updated_at) AS skipped,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled\n  FROM v3\n)\nSELECT\n  organization,\n  repository,\n  name,\n  action,\n  url,\n  conclusion,\n  attempt,\n  updated_at,\n  id,\n  duration,\n  time_bucket,\n  -- is_requested,\n  is_success,\n  -- is_failure,\n  -- is_skipped,\n  -- is_cancelled,\n  requested,\n  success,\n  failure,\n  skipped,\n  cancelled\nFROM v4\nWHERE duration <= 360\nORDER BY updated_at\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -181,6 +182,7 @@
               "time_bucket": true,
               "updated_at": false
             },
+            "includeByName": {},
             "indexByName": {},
             "renameByName": {}
           }
@@ -218,7 +220,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": [
           {
@@ -316,7 +319,7 @@
         "showHeader": true,
         "sortBy": []
       },
-      "pluginVersion": "10.3.0-63588",
+      "pluginVersion": "10.4.0-65875",
       "targets": [
         {
           "datasource": {
@@ -326,7 +329,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH v1 AS (\n  SELECT\n    repository,\n    payload -> 'workflow_job' ->> 'workflow_name' AS workflow_name,\n    payload -> 'workflow_job' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_job' ->> 'html_url' AS url,\n    (payload -> 'workflow_job' ->> 'created_at')::timestamp AS _created_at,\n    (payload -> 'workflow_job' ->> 'started_at')::timestamp AS _started_at,\n    (payload -> 'workflow_job' ->> 'completed_at')::timestamp AS _completed_at,\n    payload -> 'workflow_job' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_job' ->> 'runner_name' AS runner\n  FROM github_events\n  WHERE\n    event = 'workflow_job' AND\n    organization = '$org' AND\n    repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_job' ->> 'head_branch' ~ '$branch' AND\n    payload -> 'workflow_job' ->> 'labels' ~ '$runner' AND \n    payload -> 'workflow_job' ->> 'labels' IN ($label) AND\n    payload -> 'workflow_job' ->> 'workflow_name' IN ($workflow) AND\n    payload -> 'workflow_job' ->> 'name' IN ($job)\n), v2 AS (\n  SELECT *,\n    COALESCE(_completed_at, NOW()) AS completed_at,\n    COALESCE(_started_at, NOW()) AS started_at,\n    COALESCE(_created_at, NOW()) AS created_at,\n    COALESCE(_completed_at, _started_at, _created_at) AS updated_at,\n    CASE WHEN action = 'queued' THEN 1 ELSE 0 END AS is_queued,\n    CASE WHEN action = 'in_progress' THEN 1 ELSE 0 END AS is_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner <> '' THEN 1 ELSE 0 END AS is_cancelled_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner = '' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v1\n), v3 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$repo], 1) = 1 THEN workflow_name || ' / ' || name ELSE repository END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS execution,\n    EXTRACT(EPOCH FROM completed_at - created_at) / 60.0 AS duration,\n    EXTRACT(EPOCH FROM started_at - created_at) / 60.0 AS wait,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_queued) OVER (ORDER BY updated_at) AS queued,\n    SUM(is_in_progress) OVER (ORDER BY updated_at) AS in_progress,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled,\n    SUM(is_cancelled_in_progress) OVER (ORDER BY updated_at) AS cancelled_in_progress\n  FROM v2\n)\nSELECT\n  repository,\n  workflow_name,\n  name,\n  action,\n  url,\n  conclusion,\n  updated_at,\n  id,\n  execution,\n  duration,\n  wait,\n  time_bucket,\n  -- is_queued,\n  -- is_in_progress,\n  is_success,\n  -- is_failure,\n  -- is_cancelled,\n  -- is_cancelled_in_progress,\n  queued,\n  in_progress,\n  success,\n  failure,\n  cancelled,\n  cancelled_in_progress\nFROM v3\nORDER BY updated_at\n",
+          "rawSql": "WITH v1 AS (\n  SELECT\n    organization,\n    repository,\n    payload -> 'workflow_job' ->> 'workflow_name' AS workflow_name,\n    payload -> 'workflow_job' ->> 'name' AS name,\n    payload ->> 'action' AS action,\n    payload -> 'workflow_job' ->> 'html_url' AS url,\n    (payload -> 'workflow_job' ->> 'created_at')::timestamp AS _created_at,\n    (payload -> 'workflow_job' ->> 'started_at')::timestamp AS _started_at,\n    (payload -> 'workflow_job' ->> 'completed_at')::timestamp AS _completed_at,\n    payload -> 'workflow_job' ->> 'conclusion' AS conclusion,\n    payload -> 'workflow_job' ->> 'runner_name' AS runner,\n    payload -> 'workflow_job' ->> 'labels' LIKE '%self-hosted%' AS self_hosted\n  FROM github_events\n  WHERE\n    event = 'workflow_job' AND\n    organization IN ($org) AND\n    organization || '/' || repository IN ($repo) AND\n    receipt BETWEEN to_timestamp($__from / 1000) AND to_timestamp($__to / 1000) AND\n    payload -> 'workflow_job' ->> 'head_branch' LIKE '$branch' AND\n    payload -> 'workflow_job' ->> 'labels' LIKE '$label' AND\n    payload -> 'workflow_job' ->> 'workflow_name' LIKE '$workflow' AND\n    payload -> 'workflow_job' ->> 'name' LIKE '$job'\n), v2 AS (\n  SELECT *,\n    COALESCE(_completed_at, NOW()) AS completed_at,\n    COALESCE(_started_at, NOW()) AS started_at,\n    COALESCE(_created_at, NOW()) AS created_at,\n    COALESCE(_completed_at, _started_at, _created_at) AS updated_at,\n    CASE WHEN action = 'queued' THEN 1 ELSE 0 END AS is_queued,\n    CASE WHEN action = 'in_progress' THEN 1 ELSE 0 END AS is_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'success' THEN 1 ELSE 0 END AS is_success,\n    CASE WHEN action = 'completed' AND conclusion = 'failure' THEN 1 ELSE 0 END AS is_failure,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner <> '' THEN 1 ELSE 0 END AS is_cancelled_in_progress,\n    CASE WHEN action = 'completed' AND conclusion = 'cancelled' AND runner = '' THEN 1 ELSE 0 END AS is_cancelled\n  FROM v1\n), v3 AS (\n  SELECT *,\n    CASE WHEN array_length(ARRAY[$org], 1) = 1 \n      THEN CASE WHEN array_length(ARRAY[$repo], 1) = 1 \n        THEN workflow_name || ' / ' || name \n        ELSE organization || '/' || repository \n      END\n      ELSE organization\n    END AS id,\n    EXTRACT(EPOCH FROM completed_at - started_at) / 60.0 AS execution,\n    EXTRACT(EPOCH FROM completed_at - created_at) / 60.0 AS duration,\n    EXTRACT(EPOCH FROM started_at - created_at) / 60.0 AS wait,\n    date_trunc('$bucket', updated_at) AS time_bucket,\n    SUM(is_queued) OVER (ORDER BY updated_at) AS queued,\n    SUM(is_in_progress) OVER (ORDER BY updated_at) AS in_progress,\n    SUM(is_success) OVER (ORDER BY updated_at) AS success,\n    SUM(is_failure) OVER (ORDER BY updated_at) AS failure,\n    SUM(is_cancelled) OVER (ORDER BY updated_at) AS cancelled,\n    SUM(is_cancelled_in_progress) OVER (ORDER BY updated_at) AS cancelled_in_progress\n  FROM v2\n)\nSELECT\n  organization,\n  repository,\n  workflow_name,\n  name,\n  action,\n  url,\n  conclusion,\n  updated_at,\n  id,\n  execution,\n  duration,\n  wait,\n  time_bucket,\n  -- is_queued,\n  -- is_in_progress,\n  is_success,\n  -- is_failure,\n  -- is_cancelled,\n  -- is_cancelled_in_progress,\n  queued,\n  in_progress,\n  success,\n  failure,\n  cancelled,\n  cancelled_in_progress,\n  self_hosted\nFROM v3\nWHERE duration <= 360\nORDER BY updated_at\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -397,19 +400,16 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 12,
+        "h": 5,
+        "w": 6,
         "x": 0,
         "y": 6
       },
@@ -426,10 +426,11 @@
           "fields": "/^name$/",
           "values": false
         },
+        "showPercentChange": false,
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.3.0-63588",
+      "pluginVersion": "10.4.0-65875",
       "targets": [
         {
           "datasource": {
@@ -499,19 +500,116 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 12,
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 6
+      },
+      "id": 58,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^is_success$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Success of Completed Workflows",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
         "x": 12,
         "y": 6
       },
@@ -528,10 +626,11 @@
           "fields": "/^name$/",
           "values": false
         },
+        "showPercentChange": false,
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.3.0-63588",
+      "pluginVersion": "10.4.0-65875",
       "targets": [
         {
           "datasource": {
@@ -578,6 +677,3350 @@
               }
             ],
             "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 6
+      },
+      "id": 59,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^is_success$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Success of Completed Jobs",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 12,
+        "y": 9
+      },
+      "id": 66,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "/^name$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Number of Completed Jobs on Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": false
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 15,
+        "y": 9
+      },
+      "id": 79,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "/^name$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Number of Completed Jobs on Self-Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": true
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 18,
+        "y": 9
+      },
+      "id": 62,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^is_success$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Success of Completed Jobs on Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": false
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 21,
+        "y": 9
+      },
+      "id": 80,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^is_success$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Success of Completed Jobs on Self-Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": true
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "id": 55,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^duration$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Duration of Completed Workflows",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 11
+      },
+      "id": 57,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^execution$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Execution Time of Completed Jobs",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 11
+      },
+      "id": 60,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^wait$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Wait Time of Completed Jobs",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 12,
+        "y": 14
+      },
+      "id": 75,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^execution$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "50th Percentile Execution Time of Completed Jobs",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "execution"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.5
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 15,
+        "y": 14
+      },
+      "id": 84,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^execution$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "90th Percentile Execution Time of Completed Jobs",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "execution"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.9
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 18,
+        "y": 14
+      },
+      "id": 77,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^wait$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "50th Percentile Wait Time of Completed Jobs",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "wait"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.5
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 21,
+        "y": 14
+      },
+      "id": 85,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^wait$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "90th Percentile Wait Time of Completed Jobs",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "wait"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.9
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 12,
+        "y": 16
+      },
+      "id": 88,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^execution$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Execution Time of Completed Jobs on Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": false
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 15,
+        "y": 16
+      },
+      "id": 64,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^execution$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Execution Time of Completed Jobs on Self-Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": true
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 18,
+        "y": 16
+      },
+      "id": 89,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^wait$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Wait Time of Completed Jobs on Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": false
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 21,
+        "y": 16
+      },
+      "id": 65,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "/^wait$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "Wait Time of Completed Jobs on Self-Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": true
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 18
+      },
+      "id": 67,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^duration$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "50th Percentile Duration of Completed Workflows",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "duration"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "include": [
+                "duration"
+              ],
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.5
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 18
+      },
+      "id": 96,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^duration$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 14,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "90th Percentile Duration of Completed Workflows",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "duration"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "include": [
+                "duration"
+              ],
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.9
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 12,
+        "y": 19
+      },
+      "id": 92,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^execution$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "50th Percentile Execution Time of Completed Jobs on Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": false
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "execution"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.5
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 15,
+        "y": 19
+      },
+      "id": 76,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^execution$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {},
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "50th Percentile Execution Time of Completed Jobs on Self-Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": true
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "execution"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.5
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 18,
+        "y": 19
+      },
+      "id": 94,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^wait$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "50th Percentile Wait Time of Completed Jobs on Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": false
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "wait"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.5
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 21,
+        "y": 19
+      },
+      "id": 78,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^wait$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "50th Percentile Wait Time of Completed Jobs on Self-Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": true
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "wait"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.5
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 12,
+        "y": 21
+      },
+      "id": 93,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^execution$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "90th Percentile Execution Time of Completed Jobs on Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": false
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "execution"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.9
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 15,
+        "y": 21
+      },
+      "id": 83,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^execution$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "90th Percentile Execution Time of Completed Jobs on Self-Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": true
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "execution"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.9
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 18,
+        "y": 21
+      },
+      "id": 95,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^wait$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "90th Percentile Wait Time of Completed Jobs on Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": false
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "wait"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.9
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
+            "type": "include"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 21,
+        "y": 21
+      },
+      "id": 86,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "first"
+          ],
+          "fields": "/^wait$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0-65875",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 31,
+          "refId": "A",
+          "withTransforms": false
+        }
+      ],
+      "title": "90th Percentile Wait Time of Completed Jobs on Self-Hosted Runners",
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "completed"
+                  }
+                },
+                "fieldName": "action"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "skipped"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "notEqual",
+                  "options": {
+                    "value": "cancelled"
+                  }
+                },
+                "fieldName": "conclusion"
+              },
+              {
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": true
+                  }
+                },
+                "fieldName": "self_hosted"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "wait"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "percentile",
+            "index": {
+              "asPercentile": true
+            },
+            "mode": "index",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0.9
+                  }
+                },
+                "fieldName": "percentile"
+              }
+            ],
+            "match": "any",
             "type": "include"
           }
         }
@@ -640,40 +4083,16 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
-        "overrides": [
-          {
-            "__systemRef": "hideSeriesFrom",
-            "matcher": {
-              "id": "byNames",
-              "options": {
-                "mode": "exclude",
-                "names": [
-                  "duration (mean) Continuous integration"
-                ],
-                "prefix": "All except:",
-                "readOnly": true
-              }
-            },
-            "properties": [
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": true
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 12
+        "y": 23
       },
       "id": 43,
       "options": {
@@ -830,7 +4249,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": []
       },
@@ -838,7 +4258,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 12
+        "y": 23
       },
       "id": 53,
       "options": {
@@ -914,7 +4334,8 @@
               "execution": {
                 "aggregations": [
                   "max",
-                  "mean"
+                  "mean",
+                  "sum"
                 ],
                 "operation": "aggregate"
               },
@@ -966,14 +4387,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
                 "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": []
       },
@@ -981,7 +4404,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 20
+        "y": 31
       },
       "id": 44,
       "options": {
@@ -1003,7 +4426,7 @@
           }
         ]
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.4.0-65875",
       "targets": [
         {
           "datasource": {
@@ -1120,14 +4543,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
                 "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": []
       },
@@ -1135,7 +4560,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 20
+        "y": 31
       },
       "id": 38,
       "options": {
@@ -1157,7 +4582,7 @@
           }
         ]
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.4.0-65875",
       "targets": [
         {
           "datasource": {
@@ -1297,14 +4722,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
                 "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": []
       },
@@ -1312,7 +4739,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 37
       },
       "id": 45,
       "options": {
@@ -1508,14 +4935,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
                 "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": []
       },
@@ -1523,7 +4952,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 37
       },
       "id": 26,
       "options": {
@@ -1593,7 +5022,9 @@
             "fields": {
               "duration": {
                 "aggregations": [
-                  "max"
+                  "max",
+                  "mean",
+                  "sum"
                 ],
                 "operation": "aggregate"
               },
@@ -1660,7 +5091,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 45
       },
       "id": 46,
       "options": {
@@ -1675,7 +5106,7 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -1739,6 +5170,10 @@
                 "operation": "aggregate"
               },
               "name": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "organization": {
                 "aggregations": [],
                 "operation": "groupby"
               },
@@ -1860,7 +5295,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 45
       },
       "id": 54,
       "options": {
@@ -1882,7 +5317,7 @@
           }
         ]
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -2063,7 +5498,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 51
       },
       "id": 47,
       "options": {
@@ -2285,7 +5720,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 40
+        "y": 51
       },
       "id": 33,
       "options": {
@@ -2393,7 +5828,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 48
+        "y": 59
       },
       "id": 50,
       "options": {
@@ -2411,7 +5846,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -2602,7 +6037,7 @@
         "h": 6,
         "w": 6,
         "x": 6,
-        "y": 48
+        "y": 59
       },
       "id": 49,
       "options": {
@@ -2624,7 +6059,7 @@
           }
         ]
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -2789,7 +6224,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 48
+        "y": 59
       },
       "id": 35,
       "options": {
@@ -2804,7 +6239,7 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -2940,7 +6375,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 54
+        "y": 65
       },
       "id": 28,
       "options": {
@@ -3125,7 +6560,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 62
+        "y": 73
       },
       "id": 30,
       "options": {
@@ -3140,7 +6575,7 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -3201,6 +6636,10 @@
                 "operation": "aggregate"
               },
               "name": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "organization": {
                 "aggregations": [],
                 "operation": "groupby"
               },
@@ -3347,7 +6786,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 68
+        "y": 79
       },
       "id": 23,
       "options": {
@@ -3547,7 +6986,7 @@
         "h": 6,
         "w": 6,
         "x": 12,
-        "y": 78
+        "y": 89
       },
       "id": 51,
       "options": {
@@ -3565,7 +7004,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -3745,7 +7184,7 @@
         "h": 6,
         "w": 6,
         "x": 18,
-        "y": 78
+        "y": 89
       },
       "id": 7,
       "options": {
@@ -3767,7 +7206,7 @@
           }
         ]
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -3803,6 +7242,10 @@
                 "aggregations": [
                   "first"
                 ],
+                "operation": "groupby"
+              },
+              "organization": {
+                "aggregations": [],
                 "operation": "groupby"
               },
               "repository": {
@@ -3853,17 +7296,20 @@
             "excludeByName": {
               "action (last)": true
             },
+            "includeByName": {},
             "indexByName": {
               "action (last)": 0,
-              "name": 3,
-              "repository": 1,
-              "url": 4,
-              "wait (last)": 5,
-              "workflow_name": 2
+              "execution (last)": 6,
+              "name": 4,
+              "organization": 1,
+              "repository": 2,
+              "url": 5,
+              "workflow_name": 3
             },
             "renameByName": {
               "execution (last)": "execution",
               "name (first)": "name",
+              "organization": "",
               "repository (first)": "repository",
               "wait (last)": "wait",
               "workflow_name (first)": "workflow_name"
@@ -3915,7 +7361,7 @@
         "h": 6,
         "w": 6,
         "x": 12,
-        "y": 84
+        "y": 95
       },
       "id": 52,
       "options": {
@@ -3933,7 +7379,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -4107,7 +7553,7 @@
         "h": 6,
         "w": 6,
         "x": 18,
-        "y": 84
+        "y": 95
       },
       "id": 48,
       "options": {
@@ -4129,7 +7575,7 @@
           }
         ]
       },
-      "pluginVersion": "10.3.0-63516",
+      "pluginVersion": "10.3.0-64399",
       "targets": [
         {
           "datasource": {
@@ -4159,6 +7605,10 @@
                 "aggregations": [
                   "first"
                 ],
+                "operation": "groupby"
+              },
+              "organization": {
+                "aggregations": [],
                 "operation": "groupby"
               },
               "repository": {
@@ -4210,13 +7660,15 @@
             "excludeByName": {
               "action (last)": true
             },
+            "includeByName": {},
             "indexByName": {
               "action (last)": 0,
-              "name": 3,
-              "repository": 1,
-              "url": 4,
-              "wait (last)": 5,
-              "workflow_name": 2
+              "name": 4,
+              "organization": 1,
+              "repository": 2,
+              "url": 5,
+              "wait (last)": 6,
+              "workflow_name": 3
             },
             "renameByName": {
               "name (first)": "name",
@@ -4256,9 +7708,9 @@
         },
         "definition": "SELECT DISTINCT organization FROM github_events",
         "hide": 0,
-        "includeAll": false,
+        "includeAll": true,
         "label": "Org",
-        "multi": false,
+        "multi": true,
         "name": "org",
         "options": [],
         "query": "SELECT DISTINCT organization FROM github_events",
@@ -4269,33 +7721,33 @@
         "type": "query"
       },
       {
-        "allValue": "",
         "current": {},
         "datasource": {
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_IPDX_RDS}"
         },
-        "definition": "SELECT DISTINCT repository FROM github_events WHERE organization = '$org'",
+        "definition": "SELECT DISTINCT CONCAT(organization, '/', repository) FROM github_events WHERE organization IN ($org)",
+        "description": "",
         "hide": 0,
         "includeAll": true,
         "label": "Repository",
         "multi": true,
         "name": "repo",
         "options": [],
-        "query": "SELECT DISTINCT repository FROM github_events WHERE organization = '$org'",
+        "query": "SELECT DISTINCT CONCAT(organization, '/', repository) FROM github_events WHERE organization IN ($org)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
-        "sort": 1,
+        "sort": 0,
         "type": "query"
       },
       {
         "current": {
           "selected": false,
-          "text": "Any",
-          "value": ".*"
+          "text": "%",
+          "value": "%"
         },
-        "description": "POSIX Regular Expression matching branch name(s)",
+        "description": "Postgres LIKE Expression matching branch name(s)",
         "hide": 0,
         "includeAll": false,
         "label": "Branch",
@@ -4303,7 +7755,7 @@
         "name": "branch",
         "options": [
           {
-            "selected": true,
+            "selected": false,
             "text": "Any",
             "value": ".*"
           },
@@ -4318,16 +7770,16 @@
             "value": "main"
           }
         ],
-        "query": "Any : .*, master, main",
-        "queryValue": "",
+        "query": "%, master, main",
+        "queryValue": "%",
         "skipUrlSync": false,
         "type": "custom"
       },
       {
         "current": {
           "selected": false,
-          "text": "minute",
-          "value": "minute"
+          "text": "hour",
+          "value": "hour"
         },
         "hide": 0,
         "includeAll": false,
@@ -4341,12 +7793,12 @@
             "value": "second"
           },
           {
-            "selected": true,
+            "selected": false,
             "text": "minute",
             "value": "minute"
           },
           {
-            "selected": false,
+            "selected": true,
             "text": "hour",
             "value": "hour"
           },
@@ -4384,15 +7836,63 @@
       {
         "current": {
           "selected": false,
-          "text": "self-hosted",
-          "value": "self-hosted"
+          "text": "%",
+          "value": "%"
         },
-        "description": "POSIX Regular Expression matching labels array\n",
+        "description": "Postgres LIKE Expression matching workflow name(s)",
         "hide": 0,
         "includeAll": false,
-        "label": "Runner",
+        "label": "Workflow",
         "multi": false,
-        "name": "runner",
+        "name": "workflow",
+        "options": [
+          {
+            "selected": false,
+            "text": "Any",
+            "value": ".*"
+          }
+        ],
+        "query": "%",
+        "queryValue": "%",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "%",
+          "value": "%"
+        },
+        "description": "Postgres LIKE Expression matching job name(s)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Job",
+        "multi": false,
+        "name": "job",
+        "options": [
+          {
+            "selected": false,
+            "text": "Any",
+            "value": ".*"
+          }
+        ],
+        "query": "%",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "%",
+          "value": "%"
+        },
+        "description": "Postgres LIKE Expression matching label(s)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Label",
+        "multi": false,
+        "name": "label",
         "options": [
           {
             "selected": false,
@@ -4400,7 +7900,7 @@
             "value": ".*"
           },
           {
-            "selected": true,
+            "selected": false,
             "text": "self-hosted",
             "value": "self-hosted"
           },
@@ -4410,73 +7910,10 @@
             "value": "^((?!self-hosted).)*$"
           }
         ],
-        "query": "Any : .*, self-hosted, hosted : ^((?!self-hosted).)*$",
+        "query": "%",
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
-      },
-      {
-        "current": {},
-        "datasource": {
-          "type": "grafana-postgresql-datasource",
-          "uid": "${DS_IPDX_RDS}"
-        },
-        "definition": "SELECT DISTINCT payload -> 'workflow_run' ->> 'name' FROM github_events WHERE event = 'workflow_run' AND organization = '$org' AND repository in ($repo)",
-        "description": "",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Workflow",
-        "multi": true,
-        "name": "workflow",
-        "options": [],
-        "query": "SELECT DISTINCT payload -> 'workflow_run' ->> 'name' FROM github_events WHERE event = 'workflow_run' AND organization = '$org' AND repository in ($repo)",
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
-        "type": "query"
-      },
-      {
-        "current": {},
-        "datasource": {
-          "type": "grafana-postgresql-datasource",
-          "uid": "${DS_IPDX_RDS}"
-        },
-        "definition": "SELECT DISTINCT payload -> 'workflow_job' ->> 'name' FROM github_events WHERE event = 'workflow_job' AND organization = '$org' AND repository in ($repo) AND payload -> 'workflow_job' ->> 'workflow_name' in ($workflow)",
-        "description": "",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Job",
-        "multi": true,
-        "name": "job",
-        "options": [],
-        "query": "SELECT DISTINCT payload -> 'workflow_job' ->> 'name' FROM github_events WHERE event = 'workflow_job' AND organization = '$org' AND repository in ($repo) AND payload -> 'workflow_job' ->> 'workflow_name' in ($workflow)",
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
-        "type": "query"
-      },
-      {
-        "current": {},
-        "datasource": {
-          "type": "grafana-postgresql-datasource",
-          "uid": "${DS_IPDX_RDS}"
-        },
-        "definition": "SELECT DISTINCT payload -> 'workflow_job' ->> 'labels' FROM github_events WHERE event = 'workflow_job' AND organization = '$org' AND repository in ($repo) AND payload -> 'workflow_job' ->> 'workflow_name' in ($workflow) AND payload -> 'workflow_job' ->> 'name' in ($job)",
-        "description": "",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Label",
-        "multi": true,
-        "name": "label",
-        "options": [],
-        "query": "SELECT DISTINCT payload -> 'workflow_job' ->> 'labels' FROM github_events WHERE event = 'workflow_job' AND organization = '$org' AND repository in ($repo) AND payload -> 'workflow_job' ->> 'workflow_name' in ($workflow) AND payload -> 'workflow_job' ->> 'name' in ($job)",
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
-        "type": "query"
       }
     ]
   },
@@ -4496,8 +7933,8 @@
     ]
   },
   "timezone": "",
-  "title": "GitHub Actions",
+  "title": "GitHub Actions Latest",
   "uid": "a11c5e9e-b6f0-44b4-9b54-10f4207d110e",
-  "version": 125,
+  "version": 40,
   "weekStart": ""
 }
